@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Spatial Decision Support System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+    <script src="latlngrainfall.js"></script>
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCmZt_kS_dPRBJm27M_eNmhct65esRWK-o&loading=async&callback=initMap&libraries=places"></script>
+
+
+    <script>
+        var pinang = { lat: 5.41318, lng: 100.326 }; // Adjusted to the general area of your hotels
+        var map; // Global map variable
+        var markers = []; // Global markers array
+        var locationID = 1; // Global location ID variable
+        var hotels = []; // Global hotels array
+        var homestays = []; // Global homestays array
+        var NearbyLocationMarkers = []; //holds nearbylocation markers
+        var clickedMarker;
+        let circle; // holds the circle for nearbysearch()
+        var circles = [];
+        var openedInfoWindow;
+        var latitude;
+        var longitude;
+        var dropDownValue = "Hotels";
+        var sidebarElements = 0;
+
+        async function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 11, center: pinang, disableDefaultUI: true, minZoom: 5, maxZoom: 20, styles: [
+                    {
+                        featureType: "poi",
+                        elementType: "all",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "poi.park",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "simplified" }]
+                    },
+                    {
+                        featureType: "transit",
+                        elementType: "labels.icon",
+                        stylers: [{ visibility: "off" }],
+                    },
+                ],
+
+            });
+
+
+            mapStyle(map);
+
+            initZoomControl(map);
+        }
+
+        async function nearbySearch(location) {
+            const radius = 1000; // radius for marker restriction and circle
+            const apiKey = 'AIzaSyCmZt_kS_dPRBJm27M_eNmhct65esRWK-o';
+            const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${location.Latitude},${location.Longitude}&radius=${radius}&key=${apiKey}`;
+
+            //https://developers.google.com/maps/documentation/places/web-service/place-types#services tableA
+            //https://developers.google.com/maps/documentation/places/web-service/nearby-search extra info if wanted
+
+            const requestBody = {//object containing data to be sent to the request
+
+
+                //excludedTypes: [], 
+                //maxResultCount: 20,
+                locationRestriction: { //return locations based of these location requirments
+                    circle: {
+                        center: {
+                            latitude: location.Latitude,  //lat&lng = marker 
+                            longitude: location.Longitude,
+                        },
+                        radius: radius,
+                    }
+                }
+            };
+
+            try {
+                // const response = await fetch(url, {//getting response of request body
+                //     method: 'POST',
+                //     headers: {
+                //         'Content-Type': 'application/json',
+                //         'X-Goog-Api-Key': apiKey,
+                //         'X-Goog-FieldMask': 'places.displayName,places.location,places.primaryType'//entering fields to include in the response
+                //     },
+                //     body: JSON.stringify(requestBody)// Convert the requestBody object to JSON and set it as the body of the request
+                // });
+
+                // if (!response.ok) {
+                //     throw new Error('Network response was not ok');
+                // }
+
+                const locationString = `${location.Latitude},${location.Longitude}`;
+                const response = await fetch('http://localhost:3000/nearbySearch?location=' + encodeURIComponent(locationString));
+                const data = await response.json();
+                // Draws circle around the clicked marker
+
+                drawCircle(location, radius);
+
+
+                // Create markers for places found
+
+                if (data.results && Array.isArray(data.results)) {
+                    data.results.forEach(place => {
+                        const placeLocation = new google.maps.LatLng(place.geometry.location.lat, place.geometry.location.lng);
+                        const placeName = place.name; // Name of the place
+                        const placeAddress = place.formatted_address; // Address of the place
+
+
+                        let includedTypes = [
+                            'bar', 'restaurant', 'cafe', 'pizza_restaurant', 'thai_restaurant', 'japanese_restaurant',
+                            'indian_restaurant', 'breakfast_restaurant', 'Seafood', 'chinese_restaurant', 'seafood_restaurant',
+                            'american_restaurant', 'barbecue_restaurant', 'coffee_shop', 'fast_food_restaurant',
+                            'hamburger_restaurant', 'indonesian_restaurant', 'italian_restaurant', 'korean_restaurant',
+                            'meal_delivery', 'meal_takeaway', 'mexican_restaurant', 'middle_eastern_restaurant', 'sandwich_shop',
+                            'sushi_restaurant', 'turkish_restaurant', 'vegan_restaurant', 'vegetarian_restaurant', 'car_rental',
+                            'tourist_attraction', 'Street_Art', 'museum', 'event_venue', 'amusement_center', 'art_gallery',
+                            'amusement_park', 'aquarium', 'bowling_alley', 'hiking_area', 'historical_landmark', 'national_park',
+                            'night_club', 'zoo', 'visitor_center', 'hospital', 'pharmacy', 'taxi_stand', 'gift_shop',
+                            'bed_and_breakfast', 'camping_cabin', 'extended_stay_hotel', 'guest_house', 'hostel', 'hotel',
+                            'lodging', 'motel', 'private_guest_room'
+                        ];
+
+                        if (includedTypes.includes(place.types[0]) && (placeName != clickedMarker)) {//checks if the place type is in the included types array
+                            createNearbyLocationMarker(placeLocation, placeName, placeAddress, place.types[0], map);
+                        }
+
+                    });
+                } else {
+                    console.error('No places found in the response');
+                }
+            } catch (error) {
+                console.error('Error fetching nearby locations:', error);
+            }
+
+        }
+        function clearNearbyLocationMarkers() {
+            NearbyLocationMarkers.forEach(function (marker) { //goesthrough array clearing markers
+                marker.setMap(null);
+            });
+            NearbyLocationMarkers = [];
+
+            if (circle) { //Checks if nearbylocation circle is visable on the map
+                circle.setMap(null);
+                circle = null;
+            }
+        }
+
+
+        function getIconURL(primaryType) {
+            const iconMap = {
+                'bar': 'images/Food.png',
+                'restaurant': 'images/Food.png',
+                'cafe': 'images/Food.png',
+                'pizza_restaurant': 'images/Food.png',
+                'thai_restaurant': 'images/Food.png',
+                'japanese_restaurant': 'images/Food.png',
+                'indian_restaurant': 'images/Food.png',
+                'breakfast_restaurant': 'images/Food.png',
+                'Seafood': 'images/Food.png',
+                'chinese_restaurant': 'images/Food.png',
+                'seafood_restaurant': 'images/Food.png',
+                'american_restaurant': 'images/Food.png',
+                'barbecue_restaurant': 'images/Food.png',
+                'coffee_shop': 'images/Food.png',
+                'fast_food_restaurant': 'images/Food.png',
+                'hamburger_restaurant': 'images/Food.png',
+                'indonesian_restaurant': 'images/Food.png',
+                'italian_restaurant': 'images/Food.png',
+                'korean_restaurant': 'images/Food.png',
+                'meal_delivery': 'images/Food.png',
+                'meal_takeaway': 'images/Food.png',
+                'mexican_restaurant': 'images/Food.png',
+                'middle_eastern_restaurant': 'images/Food.png',
+                'sandwich_shop': 'images/Food.png',
+                'sushi_restaurant': 'images/Food.png',
+                'turkish_restaurant': 'images/Food.png',
+                'vegan_restaurant': 'images/Food.png',
+                'vegetarian_restaurant': 'images/Food.png',
+                'car_rental': 'images/CarTag.png',
+                'tourist_attraction': 'images/TouristTag.png',
+                'Street_Art': 'images/TouristTag.png',
+                'museum': 'images/TouristTag.png',
+                'event_venue': 'images/TouristTag.png',
+                'amusement_center': 'images/TouristTag.png',
+                'art_gallery': 'images/TouristTag.png',
+                'amusement_park': 'images/TouristTag.png',
+                'aquarium': 'images/TouristTag.png',
+                'bowling_alley': 'images/TouristTag.png',
+                'hiking_area': 'images/TouristTag.png',
+                'historical_landmark': 'images/TouristTag.png',
+                'national_park': 'images/TouristTag.png',
+                'night_club': 'images/TouristTag.png',
+                'zoo': 'images/TouristTag.png',
+                'visitor_center': 'images/TouristTag.png',
+                'hospital': 'images/HospitalTag.png',
+                'pharmacy': 'images/HospitalTag.png',
+                'taxi_stand': 'images/TaxiTag.png',
+                'gift_shop': 'images/GiftTag.png',
+                'bed_and_breakfast': 'images/HomeTag.png',
+                'camping_cabin': 'images/HomeTag.png',
+                'extended_stay_hotel': 'images/HomeTag.png',
+                'guest_house': 'images/HomeTag.png',
+                'hostel': 'images/HomeTag.png',
+                'hotel': 'images/HomeTag.png',
+                'lodging': 'images/HomeTag.png',
+                'motel': 'images/HomeTag.png',
+                'private_guest_room': 'images/HomeTag.png',
+            };
+
+            return iconMap[primaryType] || '';
+        }
+
+        function createNearbyLocationMarker(location, name, address, primaryType, map) {
+            //placeLocation, placeName, placeAddress, place.types[0], map
+            var url = getIconURL(primaryType);
+            var marker = new google.maps.Marker({ //creating the marker ready to push
+                position: location,
+                map: map,
+                title: name,
+                address: address,
+                icon: url,
+                zIndex: 999,
+                type: primaryType,
+                valid: (url) ? true : false
+            });
+
+            //console.log(location.lat(), location.lng()), primaryType;
+
+            google.maps.event.addListener(marker, 'click', function (eventMarker) {
+                // Remove the circle from the map when marker is clicked
+                if (circle) {
+                    circle.setMap(null);
+                    circle = null;
+                }
+
+                // Remove all markers from the map
+                // NearbyLocationMarkers.forEach(function (m) {
+                //     m.setMap(null);
+                // });
+
+                searchPlaceAndShowInfo(marker.title, marker.address, marker, location);
+                console.log(marker.title, marker.address, marker, location, primaryType);
+
+                // Clear the markers array
+                //NearbyLocationMarkers = [];
+            });
+
+            if (marker.valid == true) {
+                NearbyLocationMarkers.push(marker);
+            }
+        }
+
+
+
+        function drawCircle(location, radius) {
+            var latitude = parseFloat(location.Latitude);
+            var longitude = parseFloat(location.Longitude);
+            circle = new google.maps.Circle({
+                strokeColor: '#7BB8E7',
+                strokeOpacity: 0.8,
+                strokeWeight: 2,
+                fillColor: '#7BB8E7',
+                fillOpacity: 0.34,
+                map: map,
+                center: { lat: latitude, lng: longitude },
+                radius: radius
+            });
+
+            circles.push(circle);
+        }
+
+        // Add click event listener to the circle
+        //google.maps.event.addListener(circle, 'click', function () {
+        //   circle.setMap(null); // Remove the circle from the map when clicked
+        //   circle = null; // Reset the circle variable
+        //   clearNearbyLocationMarkers();
+        // });
+
+        function mapStyle(map) {
+
+            const wrapper2 = document.getElementById('wrapper2');
+            const rainfall = document.getElementById('rainfall-box');
+            const filter = document.getElementById('filter-box');
+
+            const nightBtn = document.getElementById('night');
+
+            nightBtn.addEventListener("click", function () {
+
+                if (!this.dataset.clicked) {
+
+                    this.setAttribute("data-clicked", "yes");
+
+                    document.getElementById("rain").removeAttribute("data-clicked");
+
+                    document.getElementById("night-icon").src = "images/sun-icon.png";
+
+                    map.setOptions({ styles: styles["nightTime"] });
+
+                    document.getElementById("rain-icon").src = "images/rain-icon.png";
+
+                    rainfall.style.display = "none";
+                    filter.style.display = "none";
+                    wrapper2.style.display = "flex";
+
+                    overlays.forEach(function (overlay) {
+                        overlay.setMap(null); // Removes the overlay from the map
+                    });
+                    overlays.length = 0; // Clear the array
+                }
+                else if (this.dataset.clicked) {
+
+                    this.removeAttribute("data-clicked");
+
+                    document.getElementById("night-icon").src = "images/night-icon.png";
+
+                    map.setOptions({ styles: styles["default"] });
+                }
+
+            });
+
+            document.getElementById("rain").addEventListener("click", function () {
+
+                //const mapUrl = `https:tile.openweathermap.org/map/precipitation_new/0/1/1.png?appid=3560362e9e480326477d713d6582c2dd`;
+
+                const wrapper2 = document.getElementById('wrapper2');
+                const rainfall = document.getElementById('rainfall-box');
+                const filter = document.getElementById('filter-box');
+
+                if (!this.dataset.clicked) {
+
+                    this.setAttribute("data-clicked", "yes");
+
+                    nightBtn.removeAttribute("data-clicked");
+
+                    document.getElementById("night-icon").src = "images/night-icon.png";
+
+                    document.getElementById("rain-icon").src = "images/cloud-icon.png";
+
+                    //nightBtn.id = "disabled-icon";
+
+                    map.setOptions({ styles: styles["weather"] });
+
+                    rainfall.style.display = "flex";
+                    filter.style.display = "flex";
+                    wrapper2.style.display = "none";
+
+                    var m_aveSelect = document.getElementById("m_aveSelect");
+                    m_aveSelect.selectedIndex = 0;
+
+                    var yearSelect = document.getElementById("yearSelect");
+                    yearSelect.selectedIndex = 0;
+
+                    var monthSelect = document.getElementById("monthSelect");
+                    monthSelect.selectedIndex = 0;
+
+                }
+                else {
+
+                    this.removeAttribute("data-clicked");
+
+                    rainfall.style.display = "none";
+                    filter.style.display = "none";
+                    wrapper2.style.display = "flex";
+
+                    overlays.forEach(function (overlay) {
+                        overlay.setMap(null); // Removes the overlay from the map
+                    });
+                    overlays.length = 0; // Clear the array
+
+                    document.getElementById("rain-icon").src = "images/rain-icon.png";
+
+                    //document.getElementById("disabled-icon").id = "night";
+
+                    map.setOptions({ styles: styles["default"] });
+                }
+
+            });
+
+            const styles = {
+
+                default: [
+                    {
+                        featureType: "poi",
+                        elementType: "all",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "poi.park",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "simplified" }]
+                    },
+                    {
+                        featureType: "transit",
+                        elementType: "labels.icon",
+                        stylers: [{ visibility: "off" }],
+                    },
+                ],
+
+                nightTime: [
+                    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+                    {
+                        featureType: "transit",
+                        elementType: "labels.icon",
+                        stylers: [{ visibility: "off" }],
+                    },
+                    {
+                        featureType: "administrative.locality",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#d59563" }],
+                    },
+                    {
+                        featureType: "poi",
+                        elementType: "all",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "poi.park",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "simplified" }, { color: "#263c3f" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "geometry",
+                        stylers: [{ color: "#38414e" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "geometry.stroke",
+                        stylers: [{ color: "#212a37" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#9ca5b3" }],
+                    },
+                    {
+                        featureType: "road.highway",
+                        elementType: "geometry",
+                        stylers: [{ color: "#746855" }],
+                    },
+                    {
+                        featureType: "road.highway",
+                        elementType: "geometry.stroke",
+                        stylers: [{ color: "#1f2835" }],
+                    },
+                    {
+                        featureType: "road.highway",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#f3d19c" }],
+                    },
+                    {
+                        featureType: "transit",
+                        elementType: "geometry",
+                        stylers: [{ color: "#2f3948" }],
+                    },
+                    {
+                        featureType: "transit.station",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#d59563" }],
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "geometry",
+                        stylers: [{ color: "#17263c" }],
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#515c6d" }],
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "labels.text.stroke",
+                        stylers: [{ color: "#17263c" }],
+                    },
+                ],
+
+                weather: [
+                    {
+                        featureType: "landscape",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "on" }, { "color": "#e3e3e3" }]
+                    },
+                    {
+                        featureType: "landscape.natural",
+                        elementType: "labels",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "poi",
+                        elementType: "all",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "all",
+                        stylers: [{ color: "#cccccc" }]
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "labels",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "transit",
+                        elementType: "labels.icon",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "transit.line",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "transit.line",
+                        elementType: "labels.text",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "transit.station.airport",
+                        elementType: "geometry",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "transit.station.airport",
+                        elementType: "labels",
+                        stylers: [{ visibility: "off" }]
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "geometry",
+                        stylers: [{ color: "#FFFFFF" }]
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "geometry.fill",
+                        stylers: [{ visibility: "on" }, { color: "#cbd2d3" }]
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "labels",
+                        stylers: [{ visibility: "off" }]
+                    }
+                ]
+            }
+        };
+
+        function initZoomControl(map) {
+            //document.querySelector("#zoom").onclick = function () {
+            //    map.setZoom(map.getZoom() + 1);
+            //};
+
+            //document.querySelector("#zoomout").onclick = function () {
+            //    map.setZoom(map.getZoom() - 1);
+            //};
+
+            document.querySelector("#zoom").addEventListener("click", () => {
+                map.setZoom(map.getZoom() + 1);
+            })
+
+            document.querySelector("#zoomout").addEventListener("click", () => {
+                map.setZoom(map.getZoom() - 1);
+            })
+        }
+
+
+        async function loadMarkers(type) {
+            const response = (type == 'hotels') ? await fetch('http://localhost:3000/hotels')
+                : await fetch('http://localhost:3000/homestays');
+
+            let locations = await response.json();
+
+            if (NearbyLocationMarkers.length > 0) {
+                clearNearbyLocationMarkers();
+            }
+
+            locations.forEach(createMarker);
+        }
+
+        function showMarkers(type) {
+            markers.forEach(function (marker) {
+                if (marker.type == type) {
+                    marker.setVisible(true);
+                } else if (marker.type != type) {
+                    marker.setVisible(false);
+                }
+            });
+
+            closeMarkers();
+        }
+
+
+        //BELOW FUNCTIONS ARE USEFUL FOR ERROR CHECKING HOWEVER REDUNDANT FOR THE FINAL PRODUCT
+
+        async function loadHotels() {
+            const url = 'http://localhost:3000/hotels';
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const result = await response.json();
+                hotels = result;
+            } catch (error) {
+                console.error('Could not load hotels:', error);
+            }
+        }
+
+        async function loadHomestays() {
+            const url = 'http://localhost:3000/homestays';
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const result = await response.json();
+                homestays = result;
+            } catch (error) {
+                console.error('Could not load homestays:', error);
+            }
+        }
+
+        // Function to create a marker and add a click event listener
+        // Function to create a marker and add a single click event listener
+        function createMarker(location) {
+            // Check if a Google Place ID is provided and not null
+            if (location.GooglePlaceID) {
+                var service = new google.maps.places.PlacesService(map);
+                service.getDetails({
+                    placeId: location.GooglePlaceID
+                }, function (place, status) {
+                    if (status === google.maps.places.PlacesServiceStatus.OK) {
+                        // Place found, create a marker at the place location
+                        var marker = new google.maps.Marker({
+                            position: place.geometry.location,
+                            map: map,
+                            title: location.Name,
+                            address: location.FullAddress,
+                            type: location.Type,
+                        });
+
+                        marker.LocationID = locationID++;
+
+                        google.maps.event.addListener(marker, 'click', function () {
+
+                            searchPlaceAndShowInfo(location.Name, location.FullAddress, marker, location);
+
+
+                            clearNearbyLocationMarkers();
+                            //console.log(location);
+                            clickedMarker = marker;
+                            nearbySearch(location);//takes markers location
+                        });
+                        marker.setVisible(false);
+                        markers.push(marker);
+                    } else {
+                        // Place ID not found, default to latitude and longitude
+                        createMarkerFallback(location);
+                    }
+                });
+            } else {
+                // No Place ID provided, default to latitude and longitude
+                createMarkerFallback(location);
+            }
+        }
+
+        function createMarkerFallback(location) {
+            var position = new google.maps.LatLng(location.Latitude, location.Longitude);
+            var marker = new google.maps.Marker({
+                position: position,
+                map: map,
+                title: location.Name,
+                address: location.FullAddress,
+                type: location.Type,
+                //icon: 'images/HomeTag.png',
+            });
+
+            google.maps.event.addListener(marker, 'click', function () {
+                searchPlaceAndShowInfo(location.Name, location.FullAddress, marker, location);
+                if (circle) { //Checks if nearbylocation circle is visable on the map
+                    circle.setMap(null);
+                    circle = null;
+                }
+
+                clearNearbyLocationMarkers();
+
+                nearbySearch(location, marker.title);//takes markers location
+            });
+
+
+            markers.push(marker);
+        }
+
+        // Adjusted function to search for a place, show info window, or fallback to basic info
+        function searchPlaceAndShowInfo(name, address, marker) {
+            if (!map) {
+                console.error('Map has not been initialized.');
+                return;
+            }
+
+            var service = new google.maps.places.PlacesService(map);
+            var queryRequest = {
+                query: name + ' ' + address,
+                fields: ['place_id'], // Only need place_id here to then fetch more details
+            };
+
+            service.findPlaceFromQuery(queryRequest, function (results, status) {
+                if (status === google.maps.places.PlacesServiceStatus.OK && results.length > 0) {
+                    var placeId = results[0].place_id;
+                    // Now use getDetails with the placeId to fetch more information
+                    var detailsRequest = {
+                        placeId: placeId,
+                        fields: ['name', 'formatted_address', 'place_id', 'geometry', 'website', 'international_phone_number', 'rating', 'photos'], // Added 'photos' to the fields
+                    };
+
+                    service.getDetails(detailsRequest, function (place, status) {
+                        if (status === google.maps.places.PlacesServiceStatus.OK) {
+
+                            var geocoder = new google.maps.Geocoder();
+                            geocoder.geocode({ 'address': place.formatted_address }, function (results, status) {
+                                if (status == google.maps.GeocoderStatus.OK) {
+                                    latitude = +results[0].geometry.location.lat();
+                                    longitude = +results[0].geometry.location.lng();
+
+                                    getWeatherData(latitude, longitude);
+                                }
+                                else {
+                                    alert("Geocode was unsuccessful due to: " + status);
+                                }
+                            })
+
+                            var phone_number = place.international_phone_number;
+
+                            var website = place.website;
+
+                            var rating = place.rating;
+
+                            if (place.photos && place.photos.length > 0) {
+                                var photoUrl = place.photos[0].getUrl();
+                            }
+
+                            var content =
+
+                                `<div class="marker-info-img">
+                                    <img src="${photoUrl}" alt="Image of ${place.name}">
+                                </div>
+                            
+                                <div class="marker-info">
+                        
+                                    <div class="heading">
+                                        <h5 id="name">${place.name}</h5>
+                                        <div class="rating-2">
+                                            <h6 id="rating-2">${rating}</h6>
+                                            <img id="star" src="images/filled-star.png" alt="Image of Star">
+                                        </div>
+                                    </div>
+                        
+                                    <div class="website">
+                                        <img id="web-icon" src="images/web-icon.png" alt="">
+                                        <a href="${website}"><h6 id="h-web">${website}</h6></a>
+                                    </div>
+                        
+                                    <div class="number">
+                                        <img id="phone-icon" src="images/phone-icon.png" alt="">
+                                        <h6 id="h-num"> ${phone_number}</h6>
+                                    </div>
+
+                                    <div class="address-2" id="marker">
+                                        <img id="location-icon" src="images/location-icon.png" alt="">
+                                        <h6 id="h-address">${place.formatted_address}</h6>
+                                    </div>
+
+                                    <div class="google-address">
+                                        <img id="link-icon" src="images/link-icon.png" alt="">
+                                        <a href="https://www.google.com/maps/place/?q=place_id:${place.place_id}"><h6 id="g-address">More Information</h6></a>
+                                    </div>
+
+                                    <div class="weather">
+
+                                        <div class="open-weather">
+                                            <h5>Weather Forecast</h5>
+                                            <div class="openCloseBtn-3">
+                                                <img id="openCloseIcon-3" onclick="OpenOrClose3(this)" src="images/close-icon.png" alt="">
+                                            </div>
+                                        </div>
+
+                                        <div class="weather-container">
+                                        </div>
+                                    </div>
+                            
+                                </div>`
+
+
+                            // Display the info window with all the details
+                            var infoWindow = new google.maps.InfoWindow({ content: content });
+                            // setting info window options
+                            var infoWindowOpenOptions = {
+                                map: map,
+                                anchor: marker,
+                                shouldFocus: false
+                            }
+
+                            //if openedInfoWindow is already defined (open) close it
+                            if (typeof (openedInfoWindow) != 'undefined') {
+                                openedInfoWindow.close();
+                            }
+                            infoWindow.open(infoWindowOpenOptions);
+
+                            //set new infoWindow to current
+                            openedInfoWindow = infoWindow;
+
+
+                        } else {
+                            console.error('Place details not found:', status);
+                        }
+                    });
+                } else {
+                    console.error('Place not found or API error:', status);
+                }
+            });
+        }
+
+        async function getWeatherData(latitude, longitude) {
+
+            const weatherApiKey = "3560362e9e480326477d713d6582c2dd";
+
+            const currentForecastUrl = `http://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&appid=${weatherApiKey}&units=metric`;
+
+            fetch(currentForecastUrl)
+                .then(response => response.json())
+                .then(forecastData => {
+                    displayForecast(forecastData.list);
+                })
+                .catch(error => {
+                    console.error("Error fetching weather data " + error);
+                    alert("Error fetching weather data. Try again.");
+                });
+        }
+
+        function displayForecast(forecastData) {
+
+            var forecastDiv = document.querySelector(".weather-container");
+
+            forecastDays = [];
+
+            forecastDays.push(forecastData[5]);
+            forecastDays.push(forecastData[13]);
+            forecastDays.push(forecastData[21]);
+            forecastDays.push(forecastData[29]);
+            forecastDays.push(forecastData[37]);
+
+            forecastDays.forEach(data => {
+                const dayValue = getForecastDayValue(data);
+                const dayCondition = data.weather[0].description;
+                const dayTemp = Math.round(data.main.temp);
+                const dayWind = Math.round(data.wind.speed * 2.237);
+                const iconCode = data.weather[0].icon;
+                const iconURL = `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
+
+                const weatherHTML =
+                    `<div class="weather-box">                        
+                    <div class="weather-heading">
+                        <h6 id="weather-date">${dayValue}</h6>
+                    </div>
+
+                    <div class="weather-content">
+                        <p id="weather-condition">${dayCondition}</p>
+                        <img id="weather-icon" src="${iconURL}" alt="">
+                        <div class="weather-text">
+                            <p id="weather-temp">${dayTemp}°C</p>
+                            <p id="weather-wind">Wind: ${dayWind} mph</p>
+                        </div>
+                    </div>
+                </div>`;
+                forecastDiv.innerHTML += weatherHTML;
+            })
+        }
+
+        function getForecastDayValue(data) {
+            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+            const dayNum = new Date(data.dt_txt).getDay();
+            const day = days[dayNum]
+
+            return day;
+        }
+
+        overlays = [];
+        async function fetchAndDisplayRainfallData(rcpValue, year, month) {
+            try {
+                const response = await fetch(`http://localhost:3000/rainfall?rcpValue=${encodeURIComponent(rcpValue)}&year=${year}&month=${month}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const rainfallData = await response.json();
+
+                // Clear existing overlays
+                overlays.forEach(overlay => overlay.setMap(null));
+                overlays.length = 0; // Clear the array
+
+                // Assuming displayRainfallDataOnMap function adds new overlays
+                // and returns them, you can then push these new overlays into the array.
+                if (rainfallData.length === 0) {
+                    // No data for the selected options, display default grid
+                    displayDefaultGrid(); // Assuming this function fetches and displays the default grid
+                } else {
+                    // Data is available, display it
+                    rainfallData.forEach(data => {
+                        const newOverlay = displayRainfallDataOnMap(data);
+                        if (newOverlay) { // Ensure newOverlay is not undefined
+                            overlays.push(newOverlay);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Could not load filtered rainfall data:', error);
+            }
+        }
+
+
+        function displayRainfallDataOnMap(data) {
+            // Ensure lat and lng are parsed as floats
+            const lat = parseFloat(data.Latitude);
+            const lng = parseFloat(data.Longitude);
+
+            // Check if lat or lng is not a number
+            if (isNaN(lat) || isNaN(lng)) {
+                console.error('Latitude or Longitude is not a valid number', data);
+                return; // Skip this data point if lat or lng is invalid
+            }
+
+            const latHeight = 0.05387;
+            const lngWidth = 0.0541;
+
+            // Log the values to help with debugging
+            //console.log('Latitude:', lat, 'Longitude:', lng);
+
+            const bounds = {
+                north: lat + latHeight / 2,
+                south: lat - latHeight / 2,
+                east: lng + lngWidth / 2,
+                west: lng - lngWidth / 2,
+            };
+
+            const color = determineColorBasedOnRainfall(parseFloat(data.Rainfall));
+
+            const rectangle = new google.maps.Rectangle({
+                strokeColor: color,
+                strokeOpacity: 0.8,
+                strokeWeight: 2,
+                fillColor: color,
+                fillOpacity: 0.35,
+                map: map,
+                bounds: bounds,
+            });
+
+            overlays.push(rectangle);
+        }
+
+        function determineColorBasedOnRainfall(rainfall) {
+            if (rainfall == 0) {
+                // Light Blue or White for No Rain
+                return '#ADD8E6'; // Light Blue
+            } else if (rainfall <= 1) {
+                // Light Green for Light Rain
+                return '#90EE90'; // Light Green
+            } else if (rainfall <= 10) {
+                // Yellow for Moderate Rain
+                return '#FFFF00'; // Yellow
+            } else if (rainfall <= 20) {
+                // Orange for Heavy Rain
+                return '#FFA500'; // Orange
+            } else if (rainfall <= 50) {
+                // Red for Very Heavy Rain
+                return '#FF0000'; // Red
+            } else {
+                // Purple for Extreme Rain
+                return '#800080'; // Purple
+            }
+        }
+
+        var previousDropDown = dropDownValue;
+
+        async function updateSidebar(isSearch, searchValue) {
+
+            var markersArray = markers;
+
+            if (isSearch != true) {
+                if (dropDownValue == 'Hotels') {
+                    markersToDisplay = markersArray.filter(marker => marker.type == 'Hotel');
+                } else if (dropDownValue == 'Homestays') {
+                    markersToDisplay = markersArray.filter(marker => marker.type == 'Homestay');
+                }
+            }
+
+            const hotelListContainer = document.getElementById('hotelList');
+            hotelListContainer.classList.add('locations');
+
+            try {
+                var dropDownUpdated = false;
+
+                if (previousDropDown != dropDownValue) {
+                    dropDownUpdated = true;
+                    previousDropDown = dropDownValue;
+                    sidebarElements = 0;
+                }
+
+                if (isSearch == true || dropDownUpdated) {
+                    hotelListContainer.innerHTML = '';
+                }
+
+                if (isSearch == true) {
+                    markersToDisplay = markersArray.filter(marker => 
+                        marker.title.toLowerCase().includes(searchValue.toLowerCase()) ||
+                        marker.address.toLowerCase().includes(searchValue.toLowerCase())
+                    );
+                } else {
+                    markersToDisplay = markersToDisplay.slice(sidebarElements, sidebarElements + 25);
+                }
+
+
+
+                markersToDisplay.forEach(marker => {
+                    var index = 1;
+                    const hotelInfo = document.createElement('div');
+                    hotelInfo.classList.add('info');
+
+                    const hotelName = document.createElement('h5');
+                    hotelName.classList.add('info-name');
+                    hotelName.textContent = marker.title;
+
+                    const address = document.createElement('div');
+                    address.classList.add('info-address');
+                    const addressIcon = document.createElement('img');
+                    addressIcon.classList.add('address-icon');
+                    addressIcon.src = 'images/location-icon.png';
+                    addressIcon.alt = 'Location Icon';
+                    const addressText = document.createElement('h6');
+                    addressText.classList.add('address-text');
+                    addressText.textContent = marker.address;
+                    address.appendChild(addressIcon);
+                    address.appendChild(addressText);
+                    const viewButton = document.createElement('button');
+                    viewButton.classList.add('btn');
+                    viewButton.textContent = 'View on Map';
+
+                    // Add event listener to handle the view button click and show the hotel on the map
+                    viewButton.addEventListener('click', function () {
+                        hideMarkers(marker.title);
+                        marker.setMap(map);
+                        map.setCenter(marker.getPosition());
+                        map.setZoom(15);
+
+                        closeMarkers();
+                    });
+
+                    index++;
+
+                    hotelInfo.appendChild(hotelName);
+                    hotelInfo.appendChild(address);
+                    hotelInfo.appendChild(viewButton);
+
+                    hotelListContainer.appendChild(hotelInfo);
+                });
+
+                // Create "View More" button
+
+                const loadMoreButton = document.createElement('button');
+                loadMoreButton.classList.add('load-btn');
+                loadMoreButton.textContent = 'Load More';
+
+                // Add event listener to handle the "View More" button click
+                loadMoreButton.addEventListener('click', function () {
+                    loadMoreButton.remove();
+                    updateSidebar();
+                });
+
+                // Append "View More" button to hotelListContainer
+                if (isSearch || dropDownValue === 'Homestays') {
+                    // If it's a search or the dropdown value is 'Homestays', don't append the loadMoreButton
+                } else {
+                    // If it's not a search and the dropdown value is not 'Homestays', append the loadMoreButton
+                    hotelListContainer.appendChild(loadMoreButton);
+                }
+                
+                if (!isSearch) {
+                    sidebarElements += 25;
+                }
+
+            } catch (error) {
+                console.error('Error fetching hotels:', error);
+            }
+
+        }
+
+        // async function fetchDefaultGridBounds() {
+        //     try {
+        //         const response = await fetch('/latlong');
+        //         if (!response.ok) {
+        //             throw new Error(`HTTP error! status: ${response.status}`);
+        //         }
+        //         const defaultBounds = await response.json();
+
+        //         // Now you can use defaultBounds to display the default grid
+        //         displayDefaultGrid(defaultBounds);
+        //     } catch (error) {
+        //         console.error('Could not load default grid bounds:', error);
+        //     }
+        // }
+
+        function displayDefaultGrid() {
+
+
+            defaultBounds.forEach(({ lat, lng }) => {
+                const latHeight = 0.05387;
+                const lngWidth = 0.0541;
+
+                const bounds = {
+                    north: lat + latHeight / 2,
+                    south: lat - latHeight / 2,
+                    east: lng + lngWidth / 2,
+                    west: lng - lngWidth / 2,
+                };
+
+                const rectangle = new google.maps.Rectangle({
+                    strokeColor: '#5b6163', // Color indicating no data
+                    strokeOpacity: 0.8,
+                    strokeWeight: 2,
+                    fillColor: '#5b6163',
+                    fillOpacity: 0.35,
+                    map: map,
+                    bounds: bounds,
+                });
+
+                overlays.push(rectangle);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            setupFormListener();
+            setupClearButtonListener();
+
+
+
+            loadMarkers('hotels');
+            loadMarkers('homestays');
+
+            setTimeout(function () {
+                if (markers[0].getVisible() == true) {
+                    closeMarkers();
+                }
+                updateSidebar();
+            }, 1000);
+
+
+        });
+
+        function setupFormListener() {
+            document.getElementById('rainfallForm').addEventListener('submit', (event) => {
+                event.preventDefault(); // Prevent form from submitting the traditional way
+
+                // Retrieve values from form
+                const rcpValue = document.getElementById('m_aveSelect').value;
+                const year = document.getElementById('yearSelect').value;
+                const month = document.getElementById('monthSelect').value;
+
+
+                // Call the new function with the form values
+                fetchAndDisplayRainfallData(rcpValue, year, month);
+            });
+        }
+
+        function setupClearButtonListener() {
+            document.getElementById('clearButton').addEventListener('click', function () {
+                // Assuming 'overlays' is an array holding your map overlays (rectangles)
+                overlays.forEach(function (overlay) {
+                    overlay.setMap(null); // Removes the overlay from the map
+                });
+                overlays.length = 0; // Clear the array
+
+                m_aveSelect.selectedIndex = 0;
+                yearSelect.selectedIndex = 0;
+                monthSelect.selectedIndex = 0;
+
+                // Optional: Clear form fields or reset to default values
+                // document.getElementById('rainfallForm').reset();
+            });
+        }
+
+        async function hideMarkers(title) {
+
+            markers.forEach(marker => {
+                if (marker.title != title) {
+                    marker.setVisible(false);
+                } else if ((marker.title == title) && (!marker.getVisible())) {
+                    marker.setVisible(true);
+                }
+            });
+
+            NearbyLocationMarkers.forEach(nearbyMarker => nearbyMarker.setMap(null));
+            circles.forEach(circle => circle.setMap(null));
+            if (openedInfoWindow) {
+                openedInfoWindow.close();
+            }
+
+            const closeWrapper = document.getElementById('close-wrapper');
+            closeWrapper.style.display = 'none';
+
+        }
+
+        async function closeMarkers() {
+            const closeWrapper = document.getElementById('close-wrapper');
+
+            closeWrapper.style.display = 'flex';
+        }
+
+    </script>
+</head>
+
+<body>
+
+    <!-- map div -->
+    <div id="map"></div>
+
+    <!-- sidebar wrapper -->
+    <div class="wrapper2" id="wrapper2">
+
+        <div class="sidebar" id="sidebar">
+
+            <div class="search">
+                <input type="search" value="" name="Search" id="search-field" placeholder="Search...">
+                <img id="search-icon" src="images/search-icon.png" alt="">
+                <img class="icon" src="images/search-x.png" alt="">
+                <script>
+                    const xIcon = document.querySelector('.search .icon');
+                    const searchField = document.getElementById('search-field');
+
+                    document.querySelector('.search').addEventListener('keyup', async function (event) {
+                        if (event.key === 'Enter') {
+
+                            if (searchField.value == "") {
+                                xIcon.style.display = "none";
+                            }
+                            else {
+                                xIcon.style.display = "flex";
+                                clearSearch();
+                            }
+
+                            const searchValue = searchField.value;
+                            updateSidebar(true, searchValue);
+                        }
+                    });
+
+                    document.getElementById('search-icon').addEventListener('click', async function (event) {
+                        event.preventDefault();
+
+                        if (searchField.value == "") {
+                            xIcon.style.display = "none";
+                        }
+                        else {
+                            xIcon.style.display = "flex";
+                            clearSearch();
+                        }
+
+                        const searchValue = searchField.value;
+                        updateSidebar(true, searchValue);
+                    });
+
+                    async function clearSearch() {
+
+                        if (xIcon.style.display == "flex") {
+                            xIcon.addEventListener("click", () => {
+                                searchField.value = "";
+                                xIcon.style.display = "none";
+                                updateSidebar();
+                            })
+                        }
+                    }
+
+                </script>
+            </div>
+
+            <div class="title" id="loc">
+                <h3>Locations & Activities</h3>
+            </div>
+
+            <div class="activities">
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="hotels" onclick="showMarkers('Hotel');">
+                        <img class="icon" src="images/hotel-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Hotels</h6>
+                    </div>
+                </div>
+
+                <div class="activity">
+
+                    <div class="container" tabindex="1" id="homestays" onclick="showMarkers('Homestay');">
+                        <img class="icon" src="images/home-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Homestays</h6>
+                    </div>
+
+                </div>
+
+                <div class="activity">
+
+                    <div class="container" tabindex="1" id="travel_tours">
+                        <img class="icon" src="images/map-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Travel & Tours</h6>
+                    </div>
+
+                </div>
+
+                <div class="activity">
+
+                    <div class="container" tabindex="1" id="bed_breakfast">
+                        <img class="icon" src="images/bed-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Bed & Breakfast</h6>
+                    </div>
+
+                </div>
+
+                <div class="activity">
+
+                    <div class="container" tabindex="1" id="restaurant">
+                        <img class="icon" src="images/cutlery-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Restaurants</h6>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="activities2">
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="rentals">
+                        <img class="icon" src="images/car-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Rentals</h6>
+                    </div>
+                </div>
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="souvenirs">
+                        <img class="icon" src="images/gift-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Souvenirs</h6>
+                    </div>
+                </div>
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="taxi">
+                        <img class="icon" src="images/taxi-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Taxi</h6>
+                    </div>
+                </div>
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="photography">
+                        <img class="icon" src="images/camera-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Photography</h6>
+                    </div>
+                </div>
+
+                <div class="activity">
+                    <div class="container" tabindex="1" id="hospital">
+                        <img class="icon" src="images/hospital-icon.png" alt="">
+                    </div>
+
+                    <div class="name">
+                        <h6>Hospitals</h6>
+                    </div>
+                </div>
+
+                <script>
+                    const typeMap = {
+                        'restaurant': 'restaurant',
+                        'rentals': 'car_rental',
+                        'souvenirs': 'gift_shop',
+                        'taxi': 'taxi_stand',
+                        'hospital': 'hospital',
+                        'photography': 'tourist_attraction',
+                        'travel_tours': 'tourist_attraction',
+                        'bed_breakfast': 'lodging'
+                    };
+
+                    for (let id in typeMap) {
+                        document.getElementById(id).addEventListener('click', function () {
+                            FilterNearbyLocations(typeMap[id]);
+                        });
+                    }
+
+                    function FilterNearbyLocations(primaryType) {
+
+                        markers.forEach(marker => {
+                            if (marker != clickedMarker) {
+                                marker.setVisible(false);
+                            }
+                        });
+
+                        // Hide all markers
+                        NearbyLocationMarkers.forEach(marker => {
+                            marker.setVisible(false);
+                        });
+
+                        // Show the markers that match the selected type
+                        NearbyLocationMarkers.forEach(marker => {
+                            const iconUrlToType = {
+                                'images/Food.png': 'restaurant',
+                                'images/HomeTag.png': 'lodging',
+                                'images/TaxiTag.png': 'taxi_stand',
+                                'images/GiftTag.png': 'gift_shop',
+                                'images/CarTag.png': 'car_rental',
+                                'images/TouristTag.png': 'tourist_attraction',
+                                'images/HospitalTag.png': 'hospital'
+                            };
+                            
+                            let iconUrl = getIconURL(marker.type);
+                            generalType = iconUrlToType[iconUrl];
+
+                            // If the marker's type matches the selected type, show the marker
+                            if (generalType == primaryType) {
+                                marker.setVisible(true);
+                            }
+                        });
+                    }
+
+
+                </script>
+
+
+            </div>
+
+            <div class="title">
+
+                <h3 id="drop-title">Hotels</h3>
+
+                <div class="filters">
+
+                    <div class="form-1">
+                        <select class="form-select" id="hh" name="hh" required>
+                            <option id="" value="Hotels" selected>Hotels</option>
+                            <option id="" value="Homestays">Homestays</option>
+                        </select>
+                    </div>
+
+                    <script>
+                        async function changeList() {
+                            const hDropdown = document.getElementById("hh");
+                            const dropTitle = document.getElementById("drop-title");
+
+                            hDropdown.addEventListener("change", async => {
+                                var options = hDropdown.options;
+
+                                options.id = "";
+
+                                var selectedOption = options[options.selectedIndex];
+
+                                selectedOption.id = "selected-option";
+
+                                if (selectedOption.id == "selected-option") {
+                                    dropTitle.innerHTML = selectedOption.value;
+                                    dropDownValue = selectedOption.value;
+                                    document.getElementById('hotelList').scrollTop = 0;
+                                    updateSidebar();
+                                }
+                            })
+                        }
+                        changeList();
+                    </script>
+
+                </div>
+
+            </div>
+
+            <div class="locations" id="hotelList">
+
+            </div>
+
+        </div>
+
+        <div class="openCloseBtn">
+            <img id="openCloseIcon" src="images/close-icon.png" alt="">
+        </div>
+
+    </div>
+
+    <!-- icons in bottom right -->
+    <div class="wrapper3">
+
+        <div class="dot" id="rain">
+            <img class="icon" id="rain-icon" src="images/rain-icon.png" alt="">
+        </div>
+
+        <div class="dot" id="night">
+            <img class="icon" id="night-icon" src="images/night-icon.png" alt="">
+        </div>
+
+        <div class="pill">
+
+            <div class="plus" id="zoom">
+                <img class="icon" src="images/plus-icon.png" alt="">
+            </div>
+
+            <img id="line" src="images/line.png" alt="">
+
+            <div class="minus" id="zoomout">
+                <img class="icon" src="images/minus-icon.png" alt="">
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="wrapper4" id="close-wrapper">
+
+        <div class="close" id="hide-markers" onclick="hideMarkers()">
+            <img class="icon" src="images/x-icon.png" alt="">
+            <p>Close</p>
+        </div>
+
+    </div>
+
+    <div>
+
+        <div id="filter-box">
+
+            <div class="header">
+                <h4>Filter Rainfall Data</h4>
+
+                <div class="openCloseBtn-2">
+                    <img id="openCloseIcon-2" onclick="OpenOrClose2(this)" src="images/close-icon.png" alt="">
+                </div>
+
+            </div>
+
+            <div class="rcp-filter" id="rcp-filter">
+
+                <!-- <label for="m_aveSelect">RCP</label> -->
+                <select class="filter-options" id="m_aveSelect" name="m_ave">
+                    <option value="" disabled selected style="color: #9999;">RCP</option>
+                    <option value="RCP_2_6">2.6</option>
+                    <option value="RCP_4_5">4.5</option>
+                    <option value="RCP_6_0">6.0</option>
+                    <option value="RCP_8_5">8.5</option>
+                </select>
+
+                <form id="rainfallForm">
+                    <!-- <label for="yearSelect">Year:</label> -->
+                    <select class="filter-options" id="yearSelect" name="year">
+                        <option value="" disabled selected style="color: #9999;">Year</option>
+                        <!-- Populate years -->
+                        <option value="2024">2024</option>
+
+                        <option value="2025">2025</option>
+
+                        <option value="2026">2026</option>
+                    </select>
+
+                    <!-- <label for="monthSelect">Month:</label> -->
+                    <select class="filter-options" id="monthSelect" name="month">
+                        <option value="" disabled selected style="color: #9999;">Month</option>
+                        <!-- Populate months -->
+                        <option value="1">January</option>
+                        <option value="2">February</option>
+                        <option value="3">March</option>
+                        <option value="4">April</option>
+                        <option value="5">May</option>
+                        <option value="6">June</option>
+                        <option value="7">July</option>
+                        <option value="8">August</option>
+                        <option value="9">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                        <!-- More months... -->
+                    </select>
+
+                    <div class="rcp-btns" id="rcp-btns">
+                        <button class="rcp-btn" type="submit">Submit</button>
+                        <button class="rcp-btn" type="button" id="clearButton">Clear</button>
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+        <div class="rainfall_colour_key" id="rainfall-box">
+
+            <div class="color-values">
+
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #5b6163;"></span>
+                    <span>No data</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #ADD8E6;"></span>
+                    <span>0 mm</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #90EE90;"></span>
+                    <span>0.1 - 1 mm</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #FFFF00;"></span>
+                    <span>1.1 - 10 mm</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #FFA500;"></span>
+                    <span>10.1 - 20 mm</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #FF0000;"></span>
+                    <span>20.1 - 50 mm</span>
+                </div>
+                <div class="color-key">
+                    <span class="color-circle" style="background-color: #800080;"></span>
+                    <span>> 50 mm</span>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="loading-wrapper">
+
+    </div>
+
+    <script>
+    </script>
+
+</body>
+
+</html>

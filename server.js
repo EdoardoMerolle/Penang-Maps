@@ -10,7 +10,7 @@ const port = 3000; // You can use any available port here
 app.use(cors());
 
 const connection = mysql.createConnection({
-    host: 'database-1.cz4iw8ki2umc.eu-north-1.rds.amazonaws.com',
+    host: '//',
     user: 'admin',
     password: 'Group33!?', // Replace with your actual password
     database: 'Group33', // Your database name
@@ -59,7 +59,7 @@ app.get('/latlong', (req, res) => {
 app.get('/nearbySearch', async (req, res) => {
     const location = req.query.location;
     const radius = 1000;
-    const apiKey = 'AIzaSyCmZt_kS_dPRBJm27M_eNmhct65esRWK-o';
+    const apiKey = '//';
     const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${location}&radius=${radius}&key=${apiKey}`;
 
     try {
